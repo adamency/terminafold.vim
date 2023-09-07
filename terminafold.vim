@@ -58,7 +58,7 @@ function! TerminafoldDefineFolding()
 endfunction
 
 function! TerminafoldStart()
-  " Check if we are in terminal mode & that the function has not been run before
+  " Check if we are in terminal buffer & that the function has not been run before
   if &buftype ==# 'terminal' && !exists("g:zz_term_active")
     " Create mirror window
     vnew
@@ -82,13 +82,19 @@ function! TerminafoldStart()
     normal ggG
     " Go back to term
     wincmd h
-    normal i
+    " Works but not satisfactory
+    "au CursorHold <buffer> exe "call TerminafoldRefresh()"
     let g:zz_term_active = 1
+    "autocmd BufWinEnter * if &buftype == 'terminal' | autocmd BufWritePost <buffer> call refresh() | endif
   endif
 endfunction
 
 function! TerminafoldRefresh()
   if &buftype ==# 'terminal'
+    " Do not know if works (maybe needed for automatic refresh when in term mode)
+    "if mode() == 't'
+      "call feedkeys("\<C-\>\<C-N>", 't')
+    "endif
     wincmd l
     b#
     " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
@@ -122,11 +128,29 @@ function! TerminafoldRefresh()
     normal ggG
     " Go back to term
     wincmd h
-    normal i
+  endif
+endfunction
+
+" Resizing a `:term` window currently leads to scrollback text clipping, see https://github.com/neovim/neovim/issues/4997
+function TerminaFoldSwitchView()
+  if !exists("g:zz_term_active")
+    return
+  endif
+  if &buftype ==# 'terminal'
+    call TerminafoldRefresh()
+    exe "norm \<c-w>l\<c-w>\|"
+  else
+    exe "norm \<c-w>h\<c-w>\|i"
   endif
 endfunction
 
 tnoremap <localleader><leader>s <c-\><c-n>:call TerminafoldStart()<cr>
-tnoremap <localleader><leader>r <c-\><c-n>:call TerminafoldRefresh()<cr>
-tnoremap <localleader><leader>w <c-\><c-n><c-w>l
+tnoremap <localleader><leader>r <c-\><c-n>:call TerminafoldRefresh()<cr>i
+" View  Mirror window
+"tnoremap <localleader><leader>m <c-\><c-n>:call TerminafoldRefresh()<cr><c-w>l<c-w>\|
+" Go back to Term window
+"nnoremap <localleader><leader>t <c-w>h<c-w>\|i
+" Toggle Term/Mirror View
+tnoremap <localleader><leader><localleader> <c-\><c-n>:call TerminaFoldSwitchView()<cr>
+nnoremap <localleader><leader><localleader> :call TerminaFoldSwitchView()<cr>
 
