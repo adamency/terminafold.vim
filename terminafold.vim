@@ -3,8 +3,61 @@
 " Implements terminal sessions where scrollback is composed of
 " collapsible/foldable cells containing the commands run and their outputs
 
+function! TerminaFoldSearchCells()
+  norm! mm
+  let @/='\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
+  norm! `m
+endfunction
 
-function! TerminatorStart()
+" Define folding method to be used in TerminaFold mode
+function! TerminafoldDefineFolding()
+  " Fold all terminal command cells (prompt + output)
+  " https://vi.stackexchange.com/questions/2165/folding-by-regex-search-pattern
+  " COAI 8bfecd21-ffc2-4c12-ba13-bc63aaabf6d6
+  function! FoldTermCells(lnum)
+    " Get the current line content as a string
+    let line = getline(a:lnum)
+
+    " Check if the line starts with "[e]"
+    if line =~ '^\S*\w\+@\w\+'
+      " Fold
+      return '>1'
+    else
+      " Don't Fold
+      return '='
+    endif
+  endfunction
+  " Use above method as folding method
+  set foldmethod=expr
+  set foldexpr=FoldTermCells(v:lnum)
+
+  " Highlight command lines in prompts
+  " https://www.statox.fr/posts/2020/07/vim_flash_yanked_text/
+  " Command Line
+  hi CommandLine cterm=bold gui=bold ctermfg=12 guifg=#15aabf
+  call matchadd('CommandLine', '\v^\S*\w+\@\w+.*[$#]\s\zs.*')
+  " user@host
+  hi NormalUser ctermfg=170 guifg=#c792ea
+  call matchadd('NormalUser', '\v^\S{-}\zs\w+\@\w+\ze\s')
+  call matchadd('NormalUser', ' $ ')
+  " root@host
+  hi RootUser cterm=bold gui=bold ctermfg=204 guifg=#ff5370
+  "hi RootUser ctermfg=1 guifg=Red
+  call matchadd('RootUser', '\v^\S{-}\zsroot\@\w+\ze\s')
+  call matchadd('RootUser', ' # ')
+  " CWD
+  "hi CWD ctermfg=10 guifg=LightGreen
+  hi CWD ctermfg=10 guifg=#2acd50
+  call matchadd('CWD', '\v^.*:\zs.*\ze [#$] ')
+  " Date
+  hi Date ctermfg=180 guifg=#ffcb6b
+  call matchadd('Date', '\v(\d\d/){2}\d{4} (\d\d:){2}\d\d')
+
+  " Set up browsing between cells with `n` & `N`
+  call TerminaFoldSearchCells()
+endfunction
+
+function! TerminafoldStart()
   " Check if we are in terminal mode & that the function has not been run before
   if &buftype ==# 'terminal' && !exists("g:zz_term_active")
     " Create mirror window
@@ -23,25 +76,7 @@ function! TerminatorStart()
     " Save current terminal EOF for next refresh
     let g:zz_term_mirror_end = line('$')
 
-    " Fold all terminal command cells (prompt + output)
-    " https://vi.stackexchange.com/questions/2165/folding-by-regex-search-pattern
-    " COAI 8bfecd21-ffc2-4c12-ba13-bc63aaabf6d6
-    function! FoldTermCells(lnum)
-      " Get the current line content as a string
-      let line = getline(a:lnum)
-
-      " Check if the line starts with "[e]"
-      if line =~ '^\[e\]'
-        " Fold
-        return '>1'
-      else
-        " Don't Fold
-        return '='
-      endif
-    endfunction
-    " Use above method as folding method
-    set foldmethod=expr
-    set foldexpr=FoldTermCells(v:lnum)
+    call TerminafoldDefineFolding()
 
     " Force staying at end of scrollback
     normal ggG
@@ -52,7 +87,7 @@ function! TerminatorStart()
   endif
 endfunction
 
-function! TerminatorRefresh()
+function! TerminafoldRefresh()
   if &buftype ==# 'terminal'
     wincmd l
     b#
@@ -91,7 +126,7 @@ function! TerminatorRefresh()
   endif
 endfunction
 
-tnoremap <localleader><leader>s <c-\><c-n>:call TerminatorStart()<cr>
-tnoremap <localleader><leader>r <c-\><c-n>:call TerminatorRefresh()<cr>
+tnoremap <localleader><leader>s <c-\><c-n>:call TerminafoldStart()<cr>
+tnoremap <localleader><leader>r <c-\><c-n>:call TerminafoldRefresh()<cr>
 tnoremap <localleader><leader>w <c-\><c-n><c-w>l
 
