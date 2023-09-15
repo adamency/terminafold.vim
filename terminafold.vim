@@ -3,6 +3,7 @@
 " Implements terminal sessions where scrollback is composed of
 " collapsible/foldable cells containing the commands run and their outputs
 
+" Prepare Search register in order to navigate between prompts
 function! TerminaFoldSearchCells()
   norm! mm
   let @/='\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
@@ -11,15 +12,21 @@ endfunction
 
 " Define folding method to be used in TerminaFold mode
 function! TerminafoldDefineFolding()
-  " Fold all terminal command cells (prompt + output)
+  " Fold all terminal command cells (output)
   " https://vi.stackexchange.com/questions/2165/folding-by-regex-search-pattern
   " COAI 8bfecd21-ffc2-4c12-ba13-bc63aaabf6d6
-  function! FoldTermCells(lnum)
+  function! FoldTermCells()
     " Get the current line content as a string
-    let line = getline(a:lnum)
+    let line_before = getline(v:lnum - 1)
+    let line = getline(v:lnum)
 
-    " Check if the line starts with "[e]"
-    if line =~ '^\S*\w\+@\w\+'
+    " Start fold only if current line is the first line after a prompt to
+    " preserve syntax highlighting of prompt line (See https://github.com/nvim-treesitter/nvim-treesitter/issues/967 , https://stackoverflow.com/questions/45955033/how-to-keep-vims-folded-line-highlighted-as-the-syntax-of-the-first-line-of-the , https://stackoverflow.com/questions/1813060/syntax-highlighting-in-a-vim-fold-header)
+    let prompt_pattern = '^\S*\w\+@\w\+'
+    if line =~ prompt_pattern
+      return '0'
+    endif
+    if line_before =~ prompt_pattern
       " Fold
       return '>1'
     else
@@ -29,7 +36,7 @@ function! TerminafoldDefineFolding()
   endfunction
   " Use above method as folding method
   set foldmethod=expr
-  set foldexpr=FoldTermCells(v:lnum)
+  set foldexpr=FoldTermCells()
 
   " Highlight command lines in prompts
   " https://www.statox.fr/posts/2020/07/vim_flash_yanked_text/
@@ -57,6 +64,7 @@ function! TerminafoldDefineFolding()
   call TerminaFoldSearchCells()
 endfunction
 
+" Remove /usr/share/nvim/runtime/plugin/netrwPlugin.vim to be able to full screen window at startup
 function! TerminafoldStart()
   " Check if we are in terminal buffer & that the function has not been run before
   if &buftype ==# 'terminal' && !exists("g:zz_term_active")
@@ -125,6 +133,7 @@ function! TerminafoldRefresh()
     let g:zz_term_mirror_end = line('$')
 
 
+    call TerminaFoldSearchCells()
     normal ggG
     " Go back to term
     wincmd h
@@ -140,7 +149,7 @@ function TerminaFoldSwitchView()
     call TerminafoldRefresh()
     exe "norm \<c-w>l\<c-w>\|"
   else
-    exe "norm \<c-w>h\<c-w>\|i"
+    exe "norm \<c-w>h\<c-w>\|0i"
   endif
 endfunction
 
