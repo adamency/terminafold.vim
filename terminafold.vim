@@ -69,7 +69,7 @@ function! TerminafoldStart()
   " Check if we are in terminal buffer & that the function has not been run before
   if &buftype ==# 'terminal' && !exists("g:zz_term_active")
     " Create mirror window
-    vnew
+    tabnew
     " Copy term buffer content
     b#
     %y
@@ -89,7 +89,7 @@ function! TerminafoldStart()
     " Force staying at end of scrollback
     normal ggG
     " Go back to term
-    wincmd h
+    norm 1gt
     " Works but not satisfactory
     "au CursorHold <buffer> exe "call TerminafoldRefresh()"
     let g:zz_term_active = 1
@@ -103,7 +103,7 @@ function! TerminafoldRefresh()
     "if mode() == 't'
       "call feedkeys("\<C-\>\<C-N>", 't')
     "endif
-    wincmd l
+    norm 2gt
     b#
     " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
     let last_mirrored_line = g:zz_term_mirror_end
@@ -136,7 +136,7 @@ function! TerminafoldRefresh()
     call TerminaFoldSearchCells()
     normal ggG
     " Go back to term
-    wincmd h
+    norm 1gt
   endif
 endfunction
 
@@ -147,9 +147,9 @@ function TerminaFoldSwitchView()
   endif
   if &buftype ==# 'terminal'
     call TerminafoldRefresh()
-    exe "norm \<c-w>l\<c-w>\|"
+    exe "norm 2gt"
   else
-    exe "norm \<c-w>h\<c-w>\|0i"
+    exe "norm 1gti"
   endif
 endfunction
 
