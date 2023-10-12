@@ -92,6 +92,12 @@ function! TerminafoldStart()
     norm 1gt
     " Works but not satisfactory
     "au CursorHold <buffer> exe "call TerminafoldRefresh()"
+
+    " Allow disabling search highlight from a function via an expression mapping (which can be called from the function with feedkeys)
+    " which disables search highlighting as a side-effect of the computation of its expression
+    " See: https://github.com/neovim/neovim/issues/5581
+    tnoremap  <expr> <plug>StopSearchHighlight execute('nohlsearch')
+
     let g:zz_term_active = 1
     "autocmd BufWinEnter * if &buftype == 'terminal' | autocmd BufWritePost <buffer> call refresh() | endif
   endif
@@ -149,6 +155,11 @@ function TerminaFoldSwitchView()
     call TerminafoldRefresh()
     exe "norm 2gt"
   else
+    " `feekdeys()` only adds the keys in the queue but doesn't execute what is typed before another input is made,
+    " (which makes in our case the `<plug>StopSearchHighlight` be executed after the `norm 1gti` and thus inside Terminal Mode)
+    " unless if using 'x' mode, but when trying to use it, disabling the highlight in the mapping doesn't work for unknown reasons
+    " See: https://vimways.org/2019/a-test-to-attest-to/
+    silent call feedkeys("\<plug>StopSearchHighlight", 'm')
     exe "norm 1gti"
   endif
 endfunction
