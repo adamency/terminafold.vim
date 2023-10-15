@@ -68,13 +68,17 @@ endfunction
 function! TerminafoldStart()
   " Check if we are in terminal buffer & that the function has not been run before
   if &buftype ==# 'terminal' && !exists("g:zz_term_active")
+    let s:tabterm = tabpagenr()
+    let s:bufterm = bufnr()
     " Create mirror window
     tabnew
+    let s:tabmirror = tabpagenr()
+    let s:bufmirror = bufnr()
     " Copy term buffer content
-    b#
+    exe 'b' . s:bufterm
     %y
     " Paste term buffer into mirror buffer
-    b#
+    exe 'b' . s:bufmirror
     " (IMPORTANT: and Remove Last Line of scrollback to ensure correct future scrollback
     " because the last prompt line will be modified in the future as a command will by typed to the prompt)
     " COAI 337f24f0-da34-455a-a3b7-70054e3271c8 + https://stackoverflow.com/questions/42247108/how-to-nest-commands-in-c-option-of-vim
@@ -89,12 +93,12 @@ function! TerminafoldStart()
     " Force staying at end of scrollback
     normal ggG
     " Go back to term
-    norm 1gt
+    exe 'tabn ' . s:tabterm
     " Works but not satisfactory
     "au CursorHold <buffer> exe "call TerminafoldRefresh()"
 
     " Allow disabling search highlight from a function via an expression mapping (which can be called from the function with feedkeys)
-    " which disables search highlighting as a side-effect of the computation of its expression
+    " which disables search highlighting as a side-effect of the computation of its expression (because the highlighting state is saved and restore between a function call, so a function can't change highlighting normally)
     " See: https://github.com/neovim/neovim/issues/5581
     tnoremap  <expr> <plug>StopSearchHighlight execute('nohlsearch')
 
@@ -104,13 +108,16 @@ function! TerminafoldStart()
 endfunction
 
 function! TerminafoldRefresh()
+  if !exists("g:zz_term_active")
+    return
+  endif
   if &buftype ==# 'terminal'
     " Do not know if works (maybe needed for automatic refresh when in term mode)
     "if mode() == 't'
       "call feedkeys("\<C-\>\<C-N>", 't')
     "endif
-    norm 2gt
-    b#
+    exe 'tabn ' . s:tabmirror
+    exe 'b' . s:bufterm
     " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
     let last_mirrored_line = g:zz_term_mirror_end
     let last_term_line = line('$') - 1
@@ -120,7 +127,7 @@ function! TerminafoldRefresh()
     if last_mirrored_line < 100
       " Replace mirror by full term content (small scrollback here so not a problem)
       %y
-      b#
+      exe 'b' . s:bufmirror
       " Delete old content into black hole register to keep previously copied term content
       norm gg"_dGpggddGdd
     else
@@ -129,11 +136,11 @@ function! TerminafoldRefresh()
           " Copy & Append Remaining Scrollback to mirror buffer
           let range = last_mirrored_line + 1 . ',' . last_term_line
           silent execute range . 'yank'
-          b#
+          exe 'b' . s:bufmirror
           let start_put_line = last_mirrored_line
           execute start_put_line . 'put'
       else
-          b#
+          exe 'b' . s:bufmirror
       endif
     endif
     let g:zz_term_mirror_end = line('$')
@@ -142,25 +149,27 @@ function! TerminafoldRefresh()
     call TerminaFoldSearchCells()
     normal ggG
     " Go back to term
-    norm 1gt
+    exe 'tabn ' . s:tabterm
   endif
 endfunction
 
 " Resizing a `:term` window currently leads to scrollback text clipping, see https://github.com/neovim/neovim/issues/4997
 function TerminaFoldSwitchView()
-  if !exists("g:zz_term_active")
+  if !exists("g:zz_term_active") || bufnr() != s:bufterm &&  bufnr() != s:bufmirror
+    echoerr("TerminaFold not initialized or wrong buffer")
     return
   endif
   if &buftype ==# 'terminal'
     call TerminafoldRefresh()
-    exe "norm 2gt"
+    exe 'tabn ' . s:tabmirror
   else
     " `feekdeys()` only adds the keys in the queue but doesn't execute what is typed before another input is made,
     " (which makes in our case the `<plug>StopSearchHighlight` be executed after the `norm 1gti` and thus inside Terminal Mode)
     " unless if using 'x' mode, but when trying to use it, disabling the highlight in the mapping doesn't work for unknown reasons
     " See: https://vimways.org/2019/a-test-to-attest-to/
     silent call feedkeys("\<plug>StopSearchHighlight", 'm')
-    exe "norm 1gti"
+    exe 'tabn ' . s:tabterm
+    norm i
   endif
 endfunction
 
