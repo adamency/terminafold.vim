@@ -1,4 +1,4 @@
-" ========== FOLDED TERMINAL ==========
+" ========== FOLDED TERMINAL: TerminaFold ==========
 
 " Implements terminal sessions where scrollback is composed of
 " collapsible/foldable cells containing the commands run and their outputs
@@ -37,7 +37,9 @@ function! TerminafoldDefineFolding()
   " Use above method as folding method
   set foldmethod=expr
   set foldexpr=FoldTermCells()
+endfunction
 
+function! TerminafoldDefineHighlights()
   " Highlight command lines in prompts
   " https://www.statox.fr/posts/2020/07/vim_flash_yanked_text/
   " Command Line
@@ -59,15 +61,47 @@ function! TerminafoldDefineFolding()
   " Date
   hi Date ctermfg=180 guifg=#ffcb6b
   call matchadd('Date', '\v(\d\d/){2}\d{4} (\d\d:){2}\d\d')
+endfunction
 
-  " Set up browsing between cells with `n` & `N`
-  call TerminaFoldSearchCells()
+function! TerminafoldDefineSigns()
+  " Define Highlights for Greeter
+  hi TfGreeter cterm=bold gui=bold guifg=#FF8C00 guibg=#1e1e1e
+  hi TfGreeterTerm cterm=bold gui=bold guifg=#003366 guibg=#1e1e1e
+  hi TfGreeterMirror cterm=bold gui=bold guifg=#990000 guibg=#1e1e1e
+
+  " Define Signs
+  call sign_define('tfoldg', { "text" : 'TF',  "texthl" : 'TfGreeter'})
+  call sign_define('tfoldt', { "text" : ' T',  "texthl" : 'TfGreeterTerm'})
+  call sign_define('tfoldm', { "text" : ' M',  "texthl" : 'TfGreeterMirror'})
+
+  " Place Signs
+  " Term Signs
+  call sign_place(1, 'tfold', 'tfoldg', s:bufterm, {'lnum' : 1})
+  call sign_place(2, 'tfold', 'tfoldt', s:bufterm, {'lnum' : 1})
+  " Mirror Signs
+  let g:tfold_signs_inited = 1
+  call TerminafoldRedefineMirrorSigns()
+endfunction
+
+function! TerminafoldRedefineMirrorSigns()
+  " Nvim deletes signs on lines that are deleted so
+  " until we exceed the limit mentioned in NOTE1 we need to replace the signs in the mirror
+  if !exists("g:tfold_signs_inited")
+    return
+  endif
+  call sign_place(3, 'tfold', 'tfoldg', s:bufmirror, {'lnum' : 1})
+  call sign_place(4, 'tfold', 'tfoldm', s:bufmirror, {'lnum' : 1})
 endfunction
 
 " Remove /usr/share/nvim/runtime/plugin/netrwPlugin.vim to be able to full screen window at startup
 function! TerminafoldStart()
+  if !exists("g:tfold_enable")
+    echoerr("You must explicitly enable TerminaFold by setting the variable `g:tfold_enable`")
+    return
+  endif
+
   " Check if we are in terminal buffer & that the function has not been run before
-  if &buftype ==# 'terminal' && !exists("g:zz_term_active")
+  if &buftype ==# 'terminal' && !exists("g:tfold_active")
     let s:tabterm = tabpagenr()
     let s:bufterm = bufnr()
     " Create mirror window
@@ -83,12 +117,15 @@ function! TerminafoldStart()
     " because the last prompt line will be modified in the future as a command will by typed to the prompt)
     " COAI 337f24f0-da34-455a-a3b7-70054e3271c8 + https://stackoverflow.com/questions/42247108/how-to-nest-commands-in-c-option-of-vim
     "execute "normal! i\<C-r>0\<Esc>"
-    "norm dddd
     norm pggddGdd
     " Save current terminal EOF for next refresh
-    let g:zz_term_mirror_end = line('$')
+    let g:tfold_mirror_end = line('$')
 
     call TerminafoldDefineFolding()
+    call TerminafoldDefineHighlights()
+    call TerminafoldDefineSigns()
+    " Set up browsing between cells with `n` & `N`
+    call TerminaFoldSearchCells()
 
     " Force staying at end of scrollback
     normal ggG
@@ -102,13 +139,13 @@ function! TerminafoldStart()
     " See: https://github.com/neovim/neovim/issues/5581
     tnoremap  <expr> <plug>StopSearchHighlight execute('nohlsearch')
 
-    let g:zz_term_active = 1
+    let g:tfold_active = 1
     "autocmd BufWinEnter * if &buftype == 'terminal' | autocmd BufWritePost <buffer> call refresh() | endif
   endif
 endfunction
 
 function! TerminafoldRefresh()
-  if !exists("g:zz_term_active")
+  if !exists("g:tfold_active")
     return
   endif
   if &buftype ==# 'terminal'
@@ -119,9 +156,9 @@ function! TerminafoldRefresh()
     exe 'tabn ' . s:tabmirror
     exe 'b' . s:bufterm
     " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
-    let last_mirrored_line = g:zz_term_mirror_end
+    let last_mirrored_line = g:tfold_mirror_end
     let last_term_line = line('$') - 1
-    " IMPORTANT: At start the `:terminal` buffer is filled with empty lines until the end
+    " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
     " of the screen, so the scrollback history will not match between runs until a full
     " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
     if last_mirrored_line < 100
@@ -130,6 +167,7 @@ function! TerminafoldRefresh()
       exe 'b' . s:bufmirror
       " Delete old content into black hole register to keep previously copied term content
       norm gg"_dGpggddGdd
+      call TerminafoldRedefineMirrorSigns()
     else
       " If term content has been added
       if last_mirrored_line < last_term_line
@@ -143,7 +181,7 @@ function! TerminafoldRefresh()
           exe 'b' . s:bufmirror
       endif
     endif
-    let g:zz_term_mirror_end = line('$')
+    let g:tfold_mirror_end = line('$')
 
 
     call TerminaFoldSearchCells()
@@ -155,7 +193,7 @@ endfunction
 
 " Resizing a `:term` window currently leads to scrollback text clipping, see https://github.com/neovim/neovim/issues/4997
 function TerminaFoldSwitchView()
-  if !exists("g:zz_term_active") || bufnr() != s:bufterm &&  bufnr() != s:bufmirror
+  if !exists("g:tfold_active") || bufnr() != s:bufterm &&  bufnr() != s:bufmirror
     echoerr("TerminaFold not initialized or wrong buffer")
     return
   endif
