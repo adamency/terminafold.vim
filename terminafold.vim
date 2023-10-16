@@ -6,7 +6,8 @@
 " Prepare Search register in order to navigate between prompts
 function! TerminaFoldSearchCells()
   norm! mm
-  let @/='\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
+  let s:cmdline_regex = '\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
+  let @/ = s:cmdline_regex
   norm! `m
 endfunction
 
@@ -175,7 +176,8 @@ function! TerminafoldRefresh()
   " of the screen, so the scrollback history will not match between command runs until a full
   " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
   " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
-  if last_mirrored_line < 100
+  " Also check if we are not in a TUI by checking if there is the 1st line is a prompt line (or the 2nd one to account for echo line indicator when loading shell profile)
+  if last_mirrored_line < 100 && (getline(1) =~ s:cmdline_regex || getline(2) =~ s:cmdline_regex)
     " Replace mirror by full term content (small scrollback here so not a problem)
     %y
     exe 'b' . s:bufmirror
@@ -185,8 +187,8 @@ function! TerminafoldRefresh()
     call TerminafoldRedefineMirrorSigns()
     setlocal nomodifiable
     echo "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
-  " If term content has been added
-  elseif new_line_count > 0
+  " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
+  elseif new_line_count > 0 && getline(last_mirrored_line) == last_mirrored_line_content
     " Copy & Append Remaining Scrollback to mirror buffer
     let range = last_mirrored_line + 1 . ',' . last_term_line
     silent execute range . 'yank'
