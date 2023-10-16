@@ -128,11 +128,22 @@ function! TerminafoldStart()
     call TerminaFoldSearchCells()
 
     " Force staying at end of scrollback
-    normal ggG
+    normal G
+    " Prevent modifications of mirror buffer outside of TerminaFold
+    setlocal nomodifiable
     " Go back to term
     exe 'tabn ' . s:tabterm
-    " Works but not satisfactory
-    "au CursorHold <buffer> exe "call TerminafoldRefresh()"
+
+    """ Set Automatic Refresh Policy
+    call timer_start(5000, 'TerminafoldRefreshFromTimer', {'repeat': -1})
+    "augroup tfold
+    "au!
+    " Only works in Normal Mode, so not while in Terminal Mode
+    "exe '  au CursorHold <buffer=' . s:bufterm . '> exe "call TerminafoldRefresh()"'
+    " Very bad performance as each character typed while in the prompt will trigger a refresh
+    "exe '  au TextChangedT <buffer=' . s:bufterm . '> exe "call TerminafoldRefresh()"'
+    "augroup END
+    
 
     " Allow disabling search highlight from a function via an expression mapping (which can be called from the function with feedkeys)
     " which disables search highlighting as a side-effect of the computation of its expression (because the highlighting state is saved and restore between a function call, so a function can't change highlighting normally)
@@ -148,47 +159,57 @@ function! TerminafoldRefresh()
   if !exists("g:tfold_active")
     return
   endif
-  if &buftype ==# 'terminal'
-    " Do not know if works (maybe needed for automatic refresh when in term mode)
-    "if mode() == 't'
-      "call feedkeys("\<C-\>\<C-N>", 't')
-    "endif
-    exe 'tabn ' . s:tabmirror
-    exe 'b' . s:bufterm
-    " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
-    let last_mirrored_line = g:tfold_mirror_end
-    let last_term_line = line('$') - 1
-    " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
-    " of the screen, so the scrollback history will not match between runs until a full
-    " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
-    if last_mirrored_line < 100
-      " Replace mirror by full term content (small scrollback here so not a problem)
-      %y
-      exe 'b' . s:bufmirror
-      " Delete old content into black hole register to keep previously copied term content
-      norm gg"_dGpggddGdd
-      call TerminafoldRedefineMirrorSigns()
-    else
-      " If term content has been added
-      if last_mirrored_line < last_term_line
-          " Copy & Append Remaining Scrollback to mirror buffer
-          let range = last_mirrored_line + 1 . ',' . last_term_line
-          silent execute range . 'yank'
-          exe 'b' . s:bufmirror
-          let start_put_line = last_mirrored_line
-          execute start_put_line . 'put'
-      else
-          exe 'b' . s:bufmirror
-      endif
-    endif
-    let g:tfold_mirror_end = line('$')
 
+  let bufcurrent = bufnr()
 
-    call TerminaFoldSearchCells()
-    normal ggG
-    " Go back to term
-    exe 'tabn ' . s:tabterm
+  " Get Last mirrored line
+  exe 'b' . s:bufmirror
+  let last_mirrored_line = g:tfold_mirror_end
+  let last_mirrored_line_content = getline(last_mirrored_line)
+
+  " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
+  exe 'b' . s:bufterm
+  let last_term_line = line('$') - 1
+  let new_line_count = last_term_line - last_mirrored_line 
+  " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
+  " of the screen, so the scrollback history will not match between command runs until a full
+  " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
+  " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
+  if last_mirrored_line < 100
+    " Replace mirror by full term content (small scrollback here so not a problem)
+    %y
+    exe 'b' . s:bufmirror
+    setlocal modifiable
+    " Delete old content into black hole register to keep previously copied term content
+    norm gg"_dGpggddGdd
+    call TerminafoldRedefineMirrorSigns()
+    setlocal nomodifiable
+    echo "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
+  " If term content has been added
+  elseif new_line_count > 0
+    " Copy & Append Remaining Scrollback to mirror buffer
+    let range = last_mirrored_line + 1 . ',' . last_term_line
+    silent execute range . 'yank'
+    exe 'b' . s:bufmirror
+    setlocal modifiable
+    let start_put_line = last_mirrored_line
+    silent execute start_put_line . 'put'
+    setlocal nomodifiable
+    echo "Refreshed TerminaFold Mirror (" . new_line_count . " more lines)"
+  else
+    exe 'b' . s:bufmirror
   endif
+
+  " Post-processing in bufmirror
+  let g:tfold_mirror_end = line('$')
+  call TerminaFoldSearchCells()
+
+  " Go back to current buffer
+  exe 'b' . bufcurrent
+endfunction
+
+function! TerminafoldRefreshFromTimer(timer)
+  call TerminafoldRefresh()
 endfunction
 
 " Resizing a `:term` window currently leads to scrollback text clipping, see https://github.com/neovim/neovim/issues/4997
