@@ -111,7 +111,7 @@ function! TerminafoldStart()
     let s:bufmirror = bufnr()
     " Copy term buffer content
     exe 'b' . s:bufterm
-    %y
+    silent %y
     " Paste term buffer into mirror buffer
     exe 'b' . s:bufmirror
     " (IMPORTANT: and Remove Last Line of scrollback to ensure correct future scrollback
@@ -168,21 +168,20 @@ function! TerminafoldRefresh()
 
   " Get Last mirrored line
   exe 'b' . s:bufmirror
-  let last_mirrored_line = g:tfold_mirror_end
-  let last_mirrored_line_content = getline(last_mirrored_line)
+  let last_mirrored_line_content = getline(g:tfold_mirror_end)
 
   " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
   exe 'b' . s:bufterm
   let last_term_line = line('$') - 1
-  let new_line_count = last_term_line - last_mirrored_line 
+  let new_lines_count = last_term_line - g:tfold_mirror_end 
   " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
   " of the screen, so the scrollback history will not match between command runs until a full
   " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
   " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
   " Also check if we are not in a TUI by checking if there is the 1st line is a prompt line (or the 2nd one to account for echo line indicator when loading shell profile)
-  if last_mirrored_line < 100 && (getline(1) =~ s:cmdline_regex || getline(2) =~ s:cmdline_regex)
+  if g:tfold_mirror_end < 100 && (getline(1) =~ s:cmdline_regex || getline(2) =~ s:cmdline_regex)
     " Replace mirror by full term content (small scrollback here so not a problem)
-    %y
+    silent %y
     exe 'b' . s:bufmirror
     setlocal modifiable
     " Delete old content into black hole register to keep previously copied term content
@@ -193,16 +192,16 @@ function! TerminafoldRefresh()
     setlocal nomodifiable
     echo "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
   " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
-  elseif new_line_count > 0 && getline(last_mirrored_line) == last_mirrored_line_content
+  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) == last_mirrored_line_content
     " Copy & Append Remaining Scrollback to mirror buffer
-    let range = last_mirrored_line + 1 . ',' . last_term_line
+    let range = g:tfold_mirror_end + 1 . ',' . last_term_line
     silent execute range . 'yank'
     exe 'b' . s:bufmirror
     setlocal modifiable
-    let start_put_line = last_mirrored_line
+    let start_put_line = g:tfold_mirror_end
     silent execute start_put_line . 'put'
     setlocal nomodifiable
-    echo "Refreshed TerminaFold Mirror (" . new_line_count . " more lines)"
+    echo "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
   else
     exe 'b' . s:bufmirror
   endif
