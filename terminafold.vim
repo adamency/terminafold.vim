@@ -161,7 +161,10 @@ function! TerminafoldRefresh()
     return
   endif
 
-  let bufcurrent = bufnr()
+  let currentbuf = bufnr()
+  let currenttab = tabpagenr()
+  exe 'tabn ' . s:tabmirror
+  let currentbufmirrortab = bufnr()
 
   " Get Last mirrored line
   exe 'b' . s:bufmirror
@@ -183,7 +186,9 @@ function! TerminafoldRefresh()
     exe 'b' . s:bufmirror
     setlocal modifiable
     " Delete old content into black hole register to keep previously copied term content
+    let curl = line('.')
     norm gg"_dGpggddGdd
+    exe curl
     call TerminafoldRedefineMirrorSigns()
     setlocal nomodifiable
     echo "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
@@ -207,7 +212,9 @@ function! TerminafoldRefresh()
   call TerminaFoldSearchCells()
 
   " Go back to current buffer
-  exe 'b' . bufcurrent
+  exe 'b' . currentbufmirrortab
+  exe 'tabn ' . currenttab
+  exe 'b' . currentbuf
 endfunction
 
 function! TerminafoldRefreshFromTimer(timer)
