@@ -3,12 +3,22 @@
 " Implements terminal sessions where scrollback is composed of
 " collapsible/foldable cells containing the commands run and their outputs
 
+let s:cmdline_regex = '\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
+
 " Prepare Search register in order to navigate between prompts
 function! TerminaFoldSearchCells()
   norm! mm
-  let s:cmdline_regex = '\v^\S*\w+\@\w+.*:.*[$#]\s\zs.*'
   let @/ = s:cmdline_regex
   norm! `m
+endfunction
+
+function! TerminaFoldGet2ndPrompt()
+    call cursor(1,1)
+    let _ = search(s:cmdline_regex, 'W')
+    let s:matchline_current = search(s:cmdline_regex, 'W')
+    " We only want to copy up to the line before the 2nd prompt as it can be the currently
+    " active prompt in which case that line will change when the user inputs a command
+    let s:last_line_to_copy = s:matchline_current - 1
 endfunction
 
 " Define folding method to be used in TerminaFold mode
@@ -109,18 +119,6 @@ function! TerminafoldStart()
     tabnew
     let s:tabmirror = tabpagenr()
     let s:bufmirror = bufnr()
-    " Copy term buffer content
-    exe 'b' . s:bufterm
-    silent %y
-    " Paste term buffer into mirror buffer
-    exe 'b' . s:bufmirror
-    " (IMPORTANT: and Remove Last Line of scrollback to ensure correct future scrollback
-    " because the last prompt line will be modified in the future as a command will by typed to the prompt)
-    " COAI 337f24f0-da34-455a-a3b7-70054e3271c8 + https://stackoverflow.com/questions/42247108/how-to-nest-commands-in-c-option-of-vim
-    "execute "normal! i\<C-r>0\<Esc>"
-    norm pggddGdd
-    " Save current terminal EOF for next refresh
-    let g:tfold_mirror_end = line('$')
 
     call TerminafoldDefineFolding()
     call TerminafoldDefineHighlights()
@@ -128,8 +126,6 @@ function! TerminafoldStart()
     " Set up browsing between cells with `n` & `N`
     call TerminaFoldSearchCells()
 
-    " Force staying at end of scrollback
-    normal G
     " Prevent modifications of mirror buffer outside of TerminaFold
     setlocal nomodifiable
     " Go back to term
@@ -137,7 +133,7 @@ function! TerminafoldStart()
 
     """ Set Automatic Refresh Policy
     let g:tfold_timer_active = 0
-    "call timer_start(5000, 'TerminafoldRefreshFromTimer', {'repeat': -1})
+    call timer_start(5000, 'TerminafoldRefreshFromTimer', {'repeat': -1})
     "augroup tfold
     "au!
     " Only works in Normal Mode, so not while in Terminal Mode
@@ -157,8 +153,49 @@ function! TerminafoldStart()
   endif
 endfunction
 
-function! TerminafoldRefresh()
+function! TerminafoldInit()
   if !exists("g:tfold_active")
+    return
+  endif
+
+  let currentbuf = bufnr()
+  let currenttab = tabpagenr()
+  exe 'tabn ' . s:tabmirror
+  let currentbufmirrortab = bufnr()
+
+  " Copy term buffer content
+  exe 'b' . s:bufterm
+  " Ensure we will copy at least one line of the terminal to prevent copying before the terminal has finished starting
+  " or otherwise the line comparison for the refresh < 100 will fail
+  call TerminaFoldGet2ndPrompt()
+  if s:matchline_current > 0
+    let range = 1 . ',' . s:last_line_to_copy
+    silent execute range . 'yank'
+    exe 'b' . s:bufmirror
+    setlocal modifiable
+    silent execute 1 . 'put'
+    " Remove first empty line
+    1d
+    setlocal nomodifiable
+    " Save current terminal EOF for next refresh
+    let g:tfold_mirror_end = line('$')
+
+    " Post-processing in bufmirror
+    exe 'b' . s:bufmirror
+    let g:tfold_mirror_end = line('$')
+    call TerminaFoldSearchCells()
+    let g:tfold_inited = 1
+    echom "Initialized TerminaFold Mirror (" . g:tfold_mirror_end . " lines)"
+  endif
+
+  " Go back to current buffer
+  exe 'b' . currentbufmirrortab
+  exe 'tabn ' . currenttab
+  exe 'b' . currentbuf
+endfunction
+
+function! TerminafoldRefresh()
+  if !exists("g:tfold_active") || !exists("g:tfold_inited")
     return
   endif
 
@@ -170,6 +207,7 @@ function! TerminafoldRefresh()
   " Get Last mirrored line
   exe 'b' . s:bufmirror
   let last_mirrored_line_content = getline(g:tfold_mirror_end)
+  let init_last_mirror_line_content = getline(s:last_line_to_copy)
 
   exe 'b' . s:bufterm
   " If we don't run infinity early enough, i.e. before reading
@@ -186,14 +224,14 @@ function! TerminafoldRefresh()
   " of the screen, so the scrollback history will not match between command runs until a full
   " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
   " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
-  " Also check if we are not in a TUI by checking if there is the 1st line is a prompt line (or the 2nd one to account for echo line indicator when loading shell profile)
-  if g:tfold_mirror_end < 100 && (getline(1) =~ s:cmdline_regex || getline(2) =~ s:cmdline_regex)
+  " Also check if we are not in a TUI by comparing the buffers (each line mirrored should be exactly the same as the same line on the term)
+  if g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) == init_last_mirror_line_content
     " Replace mirror by full term content (small scrollback here so not a problem)
     silent %y
     exe 'b' . s:bufmirror
     setlocal modifiable
-    " Delete old content into black hole register to keep previously copied term content
     let curl = line('.')
+    " Delete old content into black hole register to keep previously copied term content
     norm gg"_dGpggddGdd
     exe curl
     call TerminafoldRedefineMirrorSigns()
@@ -202,6 +240,8 @@ function! TerminafoldRefresh()
   " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
   elseif new_lines_count == 0
     :
+  " If we ran a command with more than 50k lines of output, normal refresh would fail,
+  " so we try RefreshInfinity
   elseif new_lines_count > 0 && getline(g:tfold_mirror_end) != last_mirrored_line_content && g:tfold_mirror_end > 50000
     call TerminafoldRefreshInfinity(last_mirrored_line_content)
   elseif new_lines_count > 0 && getline(g:tfold_mirror_end) == last_mirrored_line_content
@@ -216,7 +256,8 @@ function! TerminafoldRefresh()
     echom "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
   else
     echoerr("SHOULD I HAVE PASSED HERE?")
-    let g:TFOLD_SHUTDOWN = 1
+    " If var name is full caps, `!` option of `'shada'` will save that var persistently
+    let g:tfold_SHUTDOWN = 1
   endif
   endif
 
@@ -269,19 +310,25 @@ function! TerminafoldRefreshInfinity(last_mirrored_line_content)
     echom "(INFINITY) Refreshed TerminaFold Mirror (" . (last_term_line - matchline) . " more lines)"
   else
     echom "(INFINITY) TerminaFold Refresh Error: Scrollback CORRUPTED"
-    let g:TFOLD_SHUTDOWN = 1
+    let g:tfold_SHUTDOWN = 1
   endif
 endfunction
 
 function! TerminafoldRefreshFromTimer(timer)
   " Only allow one active refresh from timer at a time &
   " disable auto-refresh if we think there is scrollback corruption
-  if g:tfold_timer_active == 1 || exists('g:TFOLD_SHUTDOWN')
+  if g:tfold_timer_active == 1 || exists('g:tfold_SHUTDOWN')
     return
   endif
   let g:tfold_timer_active = 1
+  if !exists('g:tfold_inited')
+    echom "Tiggering INIT"
+    call TerminafoldInit()
+    let g:tfold_timer_active = 0
+    return
+  endif
   try
-    echom "Tiggering " . timer
+    echom "Tiggering REFRESH"
     call TerminafoldRefresh()
   finally
     let g:tfold_timer_active = 0
