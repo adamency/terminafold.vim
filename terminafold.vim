@@ -136,7 +136,8 @@ function! TerminafoldStart()
     exe 'tabn ' . s:tabterm
 
     """ Set Automatic Refresh Policy
-    call timer_start(5000, 'TerminafoldRefreshFromTimer', {'repeat': -1})
+    let g:tfold_timer_active = 0
+    "call timer_start(5000, 'TerminafoldRefreshFromTimer', {'repeat': -1})
     "augroup tfold
     "au!
     " Only works in Normal Mode, so not while in Terminal Mode
@@ -170,8 +171,15 @@ function! TerminafoldRefresh()
   exe 'b' . s:bufmirror
   let last_mirrored_line_content = getline(g:tfold_mirror_end)
 
-  " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
   exe 'b' . s:bufterm
+  " If we don't run infinity early enough, i.e. before reading
+  " Vim's scrollback limit the normal copy&append method would think
+  " no new lines have come since theviewport would be the same size, but
+  " Infinity makes a search on the whole buffer so we run it as late as possible
+  if g:tfold_mirror_end > 90000
+    call TerminafoldRefreshInfinity(last_mirrored_line_content)
+  else
+  " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
   let last_term_line = line('$') - 1
   let new_lines_count = last_term_line - g:tfold_mirror_end 
   " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
@@ -190,8 +198,12 @@ function! TerminafoldRefresh()
     exe curl
     call TerminafoldRedefineMirrorSigns()
     setlocal nomodifiable
-    echo "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
+    echom "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
   " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
+  elseif new_lines_count == 0
+    :
+  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) != last_mirrored_line_content && g:tfold_mirror_end > 50000
+    call TerminafoldRefreshInfinity(last_mirrored_line_content)
   elseif new_lines_count > 0 && getline(g:tfold_mirror_end) == last_mirrored_line_content
     " Copy & Append Remaining Scrollback to mirror buffer
     let range = g:tfold_mirror_end + 1 . ',' . last_term_line
@@ -201,12 +213,15 @@ function! TerminafoldRefresh()
     let start_put_line = g:tfold_mirror_end
     silent execute start_put_line . 'put'
     setlocal nomodifiable
-    echo "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
+    echom "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
   else
-    exe 'b' . s:bufmirror
+    echoerr("SHOULD I HAVE PASSED HERE?")
+    let g:TFOLD_SHUTDOWN = 1
+  endif
   endif
 
   " Post-processing in bufmirror
+  exe 'b' . s:bufmirror
   let g:tfold_mirror_end = line('$')
   call TerminaFoldSearchCells()
 
@@ -216,8 +231,61 @@ function! TerminafoldRefresh()
   exe 'b' . currentbuf
 endfunction
 
+function! TerminafoldRefreshInfinity(last_mirrored_line_content)
+  if !exists("g:tfold_active") || &buftype !=# 'terminal' || g:tfold_mirror_end <= 50000
+    echoerr "LOCKED"
+    return
+  endif
+
+  " Find last line that match exactly with the last mirrored line
+  "normal G$ " Error: 'can't re-enter Normal mode from Terminal mode'
+  call cursor(line('$'),99999)
+  let [matchline, matchcol] = searchpos(a:last_mirrored_line_content, 'bcz')
+
+  " Check that there is a match &
+  " that the match is the same line or above (cause if not,
+  "   it could only logically be a future command) &
+  " that the two line totals are different (if mirror is bigger,
+  "   we are in overload mode, so the comparison is impossible now and
+  "   if mirror is smaller, then we still haven't passed Vim's scrollback limit
+  "   as 
+  let last_term_line = line('$') - 1
+  echom "g:tfold_mirror_end " . g:tfold_mirror_end
+  echom "last_term_line " . last_term_line
+  echom "matchline " . matchline
+  let range = matchline + 1 . ',' . last_term_line
+  echom "range " . range
+  if matchline != 0 && g:tfold_mirror_end == matchline && g:tfold_mirror_end == last_term_line
+    :
+  elseif matchline != 0 && (g:tfold_mirror_end > matchline || (g:tfold_mirror_end == matchline && last_term_line > g:tfold_mirror_end))
+    " Copy & Append Remaining Scrollback to mirror buffer
+    silent execute range . 'yank'
+    exe 'b' . s:bufmirror
+    echom "g:tfold ACTUAL _mirror_end " . line('$')
+    setlocal modifiable
+    let start_put_line = g:tfold_mirror_end
+    silent execute start_put_line . 'put'
+    setlocal nomodifiable
+    echom "(INFINITY) Refreshed TerminaFold Mirror (" . (last_term_line - matchline) . " more lines)"
+  else
+    echom "(INFINITY) TerminaFold Refresh Error: Scrollback CORRUPTED"
+    let g:TFOLD_SHUTDOWN = 1
+  endif
+endfunction
+
 function! TerminafoldRefreshFromTimer(timer)
-  call TerminafoldRefresh()
+  " Only allow one active refresh from timer at a time &
+  " disable auto-refresh if we think there is scrollback corruption
+  if g:tfold_timer_active == 1 || exists('g:TFOLD_SHUTDOWN')
+    return
+  endif
+  let g:tfold_timer_active = 1
+  try
+    echom "Tiggering " . timer
+    call TerminafoldRefresh()
+  finally
+    let g:tfold_timer_active = 0
+  endtry
 endfunction
 
 " Resizing a `:term` window currently leads to scrollback text clipping, see https://github.com/neovim/neovim/issues/4997
