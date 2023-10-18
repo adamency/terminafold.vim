@@ -225,7 +225,9 @@ function! TerminafoldRefresh()
   " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
   " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
   " Also check if we are not in a TUI by comparing the buffers (each line mirrored should be exactly the same as the same line on the term)
-  if g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) == init_last_mirror_line_content
+  if g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) != init_last_mirror_line_content
+    :
+  elseif g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) == init_last_mirror_line_content
     " Replace mirror by full term content (small scrollback here so not a problem)
     silent %y
     exe 'b' . s:bufmirror
