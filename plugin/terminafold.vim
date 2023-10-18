@@ -319,7 +319,8 @@ endfunction
 function! TerminafoldRefreshFromTimer(timer)
   " Only allow one active refresh from timer at a time &
   " disable auto-refresh if we think there is scrollback corruption
-  if g:tfold_timer_active == 1 || exists('g:tfold_SHUTDOWN')
+  " or we are already on the mirror to prevent flickering < 100L because of depleting the buffer
+  if g:tfold_timer_active == 1 || exists('g:tfold_SHUTDOWN') || bufnr() == s:bufmirror
     return
   endif
   let g:tfold_timer_active = 1
