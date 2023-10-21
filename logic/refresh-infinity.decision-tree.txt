@@ -1,0 +1,9 @@
+match < mirror_end            => limit Reached
+  term_end < mirror_end            => GO (mirror has already been filled with more than limit)
+  term_end = mirror_end            => GO (at least matches "mirror was last stopped exactly at Vim scroll limit")
+  term_end > mirror_end            => Go (matches "mirror was last stopped before Vim limit and term has now reached limit and overloaded)
+match = mirror_end            => limit Not reached
+  term_end < mirror_end            => IMPOSSIBLE as match <= term_end
+  term_end = mirror_end            => BREAK (nothing to do)
+  term_end > mirror_end            => GO (new lines when limit not reached)
+match > mirror_end            => CORRUPT (line in the future normally)

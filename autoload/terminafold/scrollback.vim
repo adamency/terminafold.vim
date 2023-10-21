@@ -8,7 +8,7 @@ function! s:TerminaFoldGet2ndPrompt()
     let s:last_line_to_copy = s:matchline_current - 1
 endfunction
 
-
+" First scrollback copy
 function! terminafold#scrollback#init()
   if !exists("g:tfold_active")
     return
@@ -50,6 +50,65 @@ function! terminafold#scrollback#init()
   exe 'b' . currentbuf
 endfunction
 
+" Scrollback < screen size
+function! terminafold#scrollback#refresh_small()
+  if !exists("g:tfold_active") || !exists("g:tfold_inited")
+    return
+  endif
+
+  " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
+  " of the screen, so the scrollback history will not match between command runs until a full
+  " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
+  " We thus can't know the difference before this threshold => we replace the entire buffer until threshold reached
+
+  let init_last_mirror_line_content = getline(s:last_line_to_copy)
+
+  " Also check if we are not in a TUI by comparing the buffers (each line mirrored should be exactly the same as the same line on the term)
+  if getline(s:last_line_to_copy) != init_last_mirror_line_content
+    :
+  elseif getline(s:last_line_to_copy) == init_last_mirror_line_content
+    " Replace mirror by full term content (small scrollback here so not a problem)
+    silent %y
+    exe 'b' . g:tfold_bufmirror
+    setlocal modifiable
+    let curl = line('.')
+    " Delete old content into black hole register to keep previously copied term content
+    norm gg"_dGpggddGdd
+    exe curl
+    call terminafold#ui#redefine_mirror_signs()
+    setlocal nomodifiable
+    echom "Refreshed TerminaFold Mirror (" . s:last_term_line . " lines)"
+  endif
+endfunction
+
+" screen size <= Scrollback < Vim scrollback limit
+function! terminafold#scrollback#refresh_medium(last_mirrored_line_content)
+  " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
+  let new_lines_count = s:last_term_line - g:tfold_mirror_end 
+
+  if new_lines_count == 0
+    :
+  " If we ran a command with more than 50k lines of output, normal refresh would fail, so we try RefreshInfinity
+  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) != a:last_mirrored_line_content && g:tfold_mirror_end > 50000
+    call terminafold#scrollback#refreshInfinity(a:last_mirrored_line_content)
+  " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
+  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) == a:last_mirrored_line_content
+    " Copy & Append Remaining Scrollback to mirror buffer
+    let range = g:tfold_mirror_end + 1 . ',' . s:last_term_line
+    silent execute range . 'yank'
+    exe 'b' . g:tfold_bufmirror
+    setlocal modifiable
+    let start_put_line = g:tfold_mirror_end
+    silent execute start_put_line . 'put'
+    setlocal nomodifiable
+    echom "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
+  else
+    echoerr("SHOULD I HAVE PASSED HERE?")
+    " If var name is full caps, `!` option of `'shada'` will save that var persistently
+    let g:tfold_SHUTDOWN = 1
+  endif
+endfunction
+
 function! terminafold#scrollback#refresh()
   if !exists("g:tfold_active") || !exists("g:tfold_inited")
     return
@@ -63,60 +122,20 @@ function! terminafold#scrollback#refresh()
   " Get Last mirrored line
   exe 'b' . g:tfold_bufmirror
   let last_mirrored_line_content = getline(g:tfold_mirror_end)
-  let init_last_mirror_line_content = getline(s:last_line_to_copy)
 
   exe 'b' . g:tfold_bufterm
-  " If we don't run infinity early enough, i.e. before reading
+  let s:last_term_line = line('$') - 1
+
+  if g:tfold_mirror_end < 100
+    call terminafold#scrollback#refresh_small()
+  " If we don't run infinity early enough, i.e. before reaching
   " Vim's scrollback limit the normal copy&append method would think
   " no new lines have come since theviewport would be the same size, but
   " Infinity makes a search on the whole buffer so we run it as late as possible
-  if g:tfold_mirror_end > 90000
+  elseif g:tfold_mirror_end > 90000
     call terminafold#scrollback#refreshInfinity(last_mirrored_line_content)
   else
-  " Retrieve new scrollback only from end of last refresh for better performance on big scrollbacks
-  let last_term_line = line('$') - 1
-  let new_lines_count = last_term_line - g:tfold_mirror_end 
-  " NOTE1: At start the `:terminal` buffer is filled with empty lines until the end
-  " of the screen, so the scrollback history will not match between command runs until a full
-  " screen of scrollback has been filled and copied to the mirror (current screen size: 53 lines)
-  " As we thus can't know the difference before this threshold, we replace the entire buffer until attained
-  " Also check if we are not in a TUI by comparing the buffers (each line mirrored should be exactly the same as the same line on the term)
-  if g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) != init_last_mirror_line_content
-    :
-  elseif g:tfold_mirror_end < 100 && getline(s:last_line_to_copy) == init_last_mirror_line_content
-    " Replace mirror by full term content (small scrollback here so not a problem)
-    silent %y
-    exe 'b' . g:tfold_bufmirror
-    setlocal modifiable
-    let curl = line('.')
-    " Delete old content into black hole register to keep previously copied term content
-    norm gg"_dGpggddGdd
-    exe curl
-    call terminafold#ui#redefine_mirror_signs()
-    setlocal nomodifiable
-    echom "Refreshed TerminaFold Mirror (" . last_term_line . " lines)"
-  " If term content has been added (also check that scrollback are equal to prevent mirroring when a TUI program is opened)
-  elseif new_lines_count == 0
-    :
-  " If we ran a command with more than 50k lines of output, normal refresh would fail,
-  " so we try RefreshInfinity
-  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) != last_mirrored_line_content && g:tfold_mirror_end > 50000
-    call terminafold#scrollback#refreshInfinity(last_mirrored_line_content)
-  elseif new_lines_count > 0 && getline(g:tfold_mirror_end) == last_mirrored_line_content
-    " Copy & Append Remaining Scrollback to mirror buffer
-    let range = g:tfold_mirror_end + 1 . ',' . last_term_line
-    silent execute range . 'yank'
-    exe 'b' . g:tfold_bufmirror
-    setlocal modifiable
-    let start_put_line = g:tfold_mirror_end
-    silent execute start_put_line . 'put'
-    setlocal nomodifiable
-    echom "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
-  else
-    echoerr("SHOULD I HAVE PASSED HERE?")
-    " If var name is full caps, `!` option of `'shada'` will save that var persistently
-    let g:tfold_SHUTDOWN = 1
-  endif
+    call terminafold#scrollback#refresh_medium(last_mirrored_line_content)
   endif
 
   " Post-processing in bufmirror
@@ -130,6 +149,7 @@ function! terminafold#scrollback#refresh()
   exe 'b' . currentbuf
 endfunction
 
+" Scrollback >= Vim scrollback limit
 function! terminafold#scrollback#refreshInfinity(last_mirrored_line_content)
   if !exists("g:tfold_active") || &buftype !=# 'terminal' || g:tfold_mirror_end <= 50000
     echoerr "LOCKED"
@@ -141,22 +161,16 @@ function! terminafold#scrollback#refreshInfinity(last_mirrored_line_content)
   call cursor(line('$'),99999)
   let [matchline, matchcol] = searchpos(a:last_mirrored_line_content, 'bcz')
 
-  " Check that there is a match &
-  " that the match is the same line or above (cause if not,
-  "   it could only logically be a future command) &
-  " that the two line totals are different (if mirror is bigger,
-  "   we are in overload mode, so the comparison is impossible now and
-  "   if mirror is smaller, then we still haven't passed Vim's scrollback limit
-  "   as 
-  let last_term_line = line('$') - 1
   echom "g:tfold_mirror_end " . g:tfold_mirror_end
-  echom "last_term_line " . last_term_line
+  echom "s:last_term_line " . s:last_term_line
   echom "matchline " . matchline
-  let range = matchline + 1 . ',' . last_term_line
+  let range = matchline + 1 . ',' . s:last_term_line
   echom "range " . range
-  if matchline != 0 && g:tfold_mirror_end == matchline && g:tfold_mirror_end == last_term_line
+
+  " Logic explanation: logic/refresh-infinity.decision-tree.txt
+  if matchline != 0 && g:tfold_mirror_end == matchline && g:tfold_mirror_end == s:last_term_line
     :
-  elseif matchline != 0 && (g:tfold_mirror_end > matchline || (g:tfold_mirror_end == matchline && last_term_line > g:tfold_mirror_end))
+  elseif matchline != 0 && (g:tfold_mirror_end > matchline || (g:tfold_mirror_end == matchline && s:last_term_line > g:tfold_mirror_end))
     " Copy & Append Remaining Scrollback to mirror buffer
     silent execute range . 'yank'
     exe 'b' . g:tfold_bufmirror
@@ -165,7 +179,7 @@ function! terminafold#scrollback#refreshInfinity(last_mirrored_line_content)
     let start_put_line = g:tfold_mirror_end
     silent execute start_put_line . 'put'
     setlocal nomodifiable
-    echom "(INFINITY) Refreshed TerminaFold Mirror (" . (last_term_line - matchline) . " more lines)"
+    echom "(INFINITY) Refreshed TerminaFold Mirror (" . (s:last_term_line - matchline) . " more lines)"
   else
     echom "(INFINITY) TerminaFold Refresh Error: Scrollback CORRUPTED"
     let g:tfold_SHUTDOWN = 1
