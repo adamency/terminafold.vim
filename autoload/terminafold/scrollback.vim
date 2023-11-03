@@ -103,6 +103,9 @@ function! terminafold#scrollback#refresh_medium(last_mirrored_line_content)
     setlocal nomodifiable
     echom "Refreshed TerminaFold Mirror (" . new_lines_count . " more lines)"
   else
+    echom("new_lines_count: " . new_lines_count)
+    echom("getline(g:tfold_mirror_end): " . getline(g:tfold_mirror_end))
+    echom("a:last_mirrored_line_content: " . a:last_mirrored_line_content)
     echoerr("SHOULD I HAVE PASSED HERE?")
     " If var name is full caps, `!` option of `'shada'` will save that var persistently
     let g:tfold_SHUTDOWN = 1
