@@ -18,8 +18,7 @@ function! terminafold#ui#define_folding()
 
     " Start fold only if current line is the first line after a prompt to
     " preserve syntax highlighting of prompt line (See https://github.com/nvim-treesitter/nvim-treesitter/issues/967 , https://stackoverflow.com/questions/45955033/how-to-keep-vims-folded-line-highlighted-as-the-syntax-of-the-first-line-of-the , https://stackoverflow.com/questions/1813060/syntax-highlighting-in-a-vim-fold-header)
-    let prompt_pattern = '^\S*\w\+@\w\+'
-    if line =~ prompt_pattern
+    if line =~ g:tfold_cmdline_regex
       return '0'
     endif
     if line_before =~ prompt_pattern
@@ -40,7 +39,7 @@ function! terminafold#ui#define_highlights()
   " https://www.statox.fr/posts/2020/07/vim_flash_yanked_text/
   " Command Line
   hi CommandLine cterm=bold gui=bold ctermfg=12 guifg=#15aabf
-  call matchadd('CommandLine', '\v^\S*\w+\@\w+.*[$#]\s\zs.*')
+  call matchadd('CommandLine', g:tfold_cmdline_regex)
   " user@host
   hi NormalUser ctermfg=170 guifg=#c792ea
   call matchadd('NormalUser', '\v^\S{-}\zs\w+\@\w+\ze\s')
